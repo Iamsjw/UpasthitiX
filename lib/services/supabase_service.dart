@@ -4,9 +4,9 @@ import '../models/session_model.dart';
 import '../models/attendance_model.dart';
 
 class SupabaseService {
-  static const String _projectUrl = 'https://ibfudqlgintflitbxfaz.supabase.co';
+  static const String _projectUrl = 'https://fgmdixxhzwhgaiajcxal.supabase.co';
   static const String _anonKey =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImliZnVkcWxnaW50ZmxpdGJ4ZmF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1Nzk4NDQsImV4cCI6MjA5MzE1NTg0NH0.rpxdQ78eObQTr9fhUe22iRiG4sm2CjDIlI04B3jMc4k';
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnbWRpeHhoendoZ2FpYWpjeGFsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NzM1NzQsImV4cCI6MjA5MzI0OTU3NH0.YDXk2lWWlN5SAN1MoXnL0JSVj8c7F_ZI_EOGclb3eas';
 
   static SupabaseClient get client => Supabase.instance.client;
   static User? get currentAuthUser => client.auth.currentUser;
