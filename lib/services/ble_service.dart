@@ -26,15 +26,37 @@ class BleService {
   static Future<bool> requestPermissions() async {
     if (kIsWeb) return false;
     try {
-      final results = await [
-        Permission.bluetooth,
+      // Permission.bluetooth is deprecated on Android 12+ (API 31+).
+      // Only request modern BLE permissions + location for scanning.
+      final permissions = [
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
         Permission.bluetoothAdvertise,
         Permission.locationWhenInUse,
-      ].request();
+      ];
 
-      return results.values.every((s) => s == PermissionStatus.granted);
+      final results = await permissions.request();
+
+      final allGranted = results.values.every((s) => s == PermissionStatus.granted);
+      debugPrint('[BLE] Permissions: $results -> granted=$allGranted');
+      return allGranted;
+    } catch (e) {
+      debugPrint('[BLE] Permission request failed: $e');
+      return false;
+    }
+  }
+
+  /// Check if all required BLE permissions are granted (without requesting).
+  static Future<bool> hasPermissions() async {
+    if (kIsWeb) return false;
+    try {
+      final results = await Future.wait([
+        Permission.bluetoothScan.status,
+        Permission.bluetoothConnect.status,
+        Permission.bluetoothAdvertise.status,
+        Permission.locationWhenInUse.status,
+      ]);
+      return results.every((s) => s.isGranted);
     } catch (_) {
       return false;
     }
@@ -59,6 +81,11 @@ class BleService {
 
   static Future<bool> startAdvertising(String sessionId) async {
     if (kIsWeb) return false;
+    final isOn = await isBluetoothOn();
+    if (!isOn) {
+      debugPrint('[BLE] Cannot advertise: Bluetooth is off');
+      return false;
+    }
     _isAdvertising = true;
     _advertisingSessionId = sessionId;
     // TODO: Replace with flutter_ble_peripheral for production advertising
