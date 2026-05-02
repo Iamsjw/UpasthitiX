@@ -8,11 +8,11 @@
     <!-- Bluetooth (API 31+) -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation"
-        tools:targetApi="s"/>
+        tools:targetApi="31"/>
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"
-        tools:targetApi="s"/>
+        tools:targetApi="31"/>
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"
-        tools:targetApi="s"/>
+        tools:targetApi="31"/>
 
     <!-- Bluetooth (API 21-30) -->
     <uses-permission android:name="android.permission.BLUETOOTH"
