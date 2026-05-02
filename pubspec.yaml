@@ -25,6 +25,7 @@ dependencies:
   fl_chart: ^0.65.0
   supabase_flutter: ^2.3.4
   flutter_blue_plus: ^1.32.12
+  flutter_ble_peripheral: ^2.1.0
   permission_handler: ^11.3.1
 
   universal_html: ^2.2.4
