@@ -190,6 +190,9 @@ class _TeacherSessionScreenState extends State<TeacherSessionScreen>
     try {
       // Request BLE permissions
       final permissionsGranted = await BleService.requestPermissions();
+      if (!permissionsGranted) {
+        debugPrint('[Session] BLE permissions not granted');
+      }
 
       // Generate 6-digit code
       final code = (100000 + Random().nextInt(900000)).toString();
@@ -205,10 +208,29 @@ class _TeacherSessionScreenState extends State<TeacherSessionScreen>
       );
 
       if (session != null) {
-        // Start BLE advertising
+        // Start BLE advertising if permissions granted
+        var bleAdvertising = false;
         if (permissionsGranted) {
-          await BleService.startAdvertising(session.id);
+          bleAdvertising = await BleService.startAdvertising(session.id);
         }
+
+        // Warn user if BLE failed but HIGH security was selected
+        if (!bleAdvertising && _securityLevel == 'HIGH' && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'BLE advertising could not start. Check Bluetooth is on and permissions are granted.',
+                style: GoogleFonts.plusJakartaSans(fontSize: 13),
+              ),
+              backgroundColor: const Color(0xFF1A1A3A),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+        }
+
         setState(() => _activeSession = session);
         _startCountdown(session);
         _subscribeToAttendance(session.id);
