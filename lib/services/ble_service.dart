@@ -19,10 +19,10 @@ class BleAdvertisementData {
 }
 
 class BleService {
-  static const String _serviceUuid = '12345678-1234-1234-1234-123456789abc';
   static StreamSubscription<List<ScanResult>>? _scanSubscription;
   static Timer? _scanTimer;
   static final List<int> _rssiSamples = [];
+  static bool _isAdvertising = false;
 
   // ---- Permissions ------------------------------------------------
   static Future<bool> requestPermissions() async {
@@ -70,7 +70,6 @@ class BleService {
   }
 
   // ---- Teacher: BLE Advertising ----------------------------------------
-  static bool _isAdvertising = false;
   static bool get isAdvertising => _isAdvertising;
 
   static Future<bool> isPeripheralSupported() async {
@@ -82,6 +81,8 @@ class BleService {
     }
   }
 
+  /// Start advertising using ONLY manufacturerData with a short session prefix.
+  /// This is the most reliable method for cross-platform BLE advertising.
   static Future<bool> startAdvertising(String sessionId) async {
     if (kIsWeb) {
       debugPrint('[BLE] Web not supported');
@@ -116,7 +117,7 @@ class BleService {
       return false;
     }
 
-    // Step 3: Build advertising data with short session prefix
+    // Step 3: Build minimal advertising data
     try {
       final prefix = sessionId.length >= 8
           ? sessionId.substring(0, 8)
@@ -125,14 +126,23 @@ class BleService {
       final prefixBytes = utf8.encode(prefix);
 
       final advertiseData = AdvertiseData(
-        serviceUuids: [_serviceUuid],
-        serviceDataUuid: _serviceUuid,
-        serviceData: prefixBytes,
-        includeDeviceName: true,
+        manufacturerId: 0x1234,
+        manufacturerData: Uint8List.fromList(prefixBytes),
+        includeDeviceName: false,
+      );
+
+      final settings = AdvertiseSettings(
+        advertiseSet: true,
+        advertiseMode: AdvertiseMode.advertiseModeLowLatency,
+        connectable: false,
+        timeout: 0,
       );
 
       debugPrint('[BLE] Calling FlutterBlePeripheral().start()...');
-      await FlutterBlePeripheral().start(advertiseData: advertiseData);
+      await FlutterBlePeripheral().start(
+        advertiseData: advertiseData,
+        advertiseSettings: settings,
+      );
       debugPrint('[BLE] FlutterBlePeripheral().start() returned');
 
       // Give it a moment, then verify
@@ -142,11 +152,13 @@ class BleService {
 
       if (!advertising) {
         debugPrint('[BLE] Warning: isAdvertising is false after start()');
-        // Retry once with longer delay
         await Future.delayed(const Duration(seconds: 1));
         final retry = await FlutterBlePeripheral().isAdvertising;
         debugPrint('[BLE] Retry isAdvertising: $retry');
-        if (!retry) return false;
+        if (!retry) {
+          _isAdvertising = false;
+          return false;
+        }
       }
 
       _isAdvertising = true;
@@ -232,22 +244,25 @@ class BleService {
     }
   }
 
+  /// Checks whether a scan result matches the target session.
+  /// Matches by: (1) manufacturerData containing session prefix (primary),
+  /// (2) serviceData, (3) device name containing the session prefix.
   static bool _isTargetSession(ScanResult result, String sessionId) {
     try {
       final prefix = sessionId.length >= 8
           ? sessionId.substring(0, 8)
           : sessionId;
 
-      // Check serviceData (set by flutter_ble_peripheral)
-      final svcData = result.advertisementData.serviceData;
-      for (final entry in svcData.entries) {
+      // Check manufacturerData (primary method with flutter_ble_peripheral)
+      final mfgData = result.advertisementData.manufacturerData;
+      for (final entry in mfgData.entries) {
         final decoded = utf8.decode(entry.value, allowMalformed: true);
         if (decoded.contains(prefix)) return true;
       }
 
-      // Check manufacturerData
-      final mfgData = result.advertisementData.manufacturerData;
-      for (final entry in mfgData.entries) {
+      // Check serviceData
+      final svcData = result.advertisementData.serviceData;
+      for (final entry in svcData.entries) {
         final decoded = utf8.decode(entry.value, allowMalformed: true);
         if (decoded.contains(prefix)) return true;
       }
