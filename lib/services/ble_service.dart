@@ -1,7 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class BleAdvertisementData {
@@ -26,8 +29,6 @@ class BleService {
   static Future<bool> requestPermissions() async {
     if (kIsWeb) return false;
     try {
-      // Permission.bluetooth is deprecated on Android 12+ (API 31+).
-      // Only request modern BLE permissions + location for scanning.
       final permissions = [
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
@@ -73,36 +74,70 @@ class BleService {
   }
 
   // ─── Teacher: BLE Advertising ─────────────────────────────────────────────
-  // NOTE: flutter_blue_plus does not support advertising on all devices.
-  // We simulate advertising by encoding session_id in device name via scan.
-  // For production, use flutter_ble_peripheral or native channels.
+  // Uses flutter_ble_peripheral to broadcast a BLE advertisement containing
+  // the session ID encoded in the service data field.
   static bool _isAdvertising = false;
-  static String? _advertisingSessionId;
+
+  static Future<bool> isPeripheralSupported() async {
+    if (kIsWeb) return false;
+    try {
+      return await FlutterBlePeripheral().isSupported;
+    } catch (_) {
+      return false;
+    }
+  }
 
   static Future<bool> startAdvertising(String sessionId) async {
     if (kIsWeb) return false;
+
     final isOn = await isBluetoothOn();
     if (!isOn) {
       debugPrint('[BLE] Cannot advertise: Bluetooth is off');
       return false;
     }
-    _isAdvertising = true;
-    _advertisingSessionId = sessionId;
-    // TODO: Replace with flutter_ble_peripheral for production advertising
-    // Simulated: In production, use platform channel to start BLE advertising
-    debugPrint('[BLE] Started advertising session: $sessionId');
-    return true;
+
+    try {
+      final supported = await isPeripheralSupported();
+      if (!supported) {
+        debugPrint('[BLE] Peripheral mode not supported on this device');
+        return false;
+      }
+
+      // Encode sessionId as UTF-8 bytes for service data
+      final sessionBytes = utf8.encode(sessionId);
+
+      final advertiseData = AdvertiseData(
+        serviceUuid: _serviceUuid,
+        localName: 'UpasthitiX',
+        serviceData: sessionBytes,
+      );
+
+      await FlutterBlePeripheral().start(advertiseData: advertiseData);
+
+      _isAdvertising = true;
+      debugPrint('[BLE] Started advertising session: $sessionId');
+      return true;
+    } catch (e) {
+      debugPrint('[BLE] Failed to start advertising: $e');
+      return false;
+    }
   }
 
   static Future<void> stopAdvertising() async {
+    try {
+      await FlutterBlePeripheral().stop();
+    } catch (e) {
+      debugPrint('[BLE] Error stopping advertising: $e');
+    }
     _isAdvertising = false;
-    _advertisingSessionId = null;
     debugPrint('[BLE] Stopped advertising');
   }
 
   static bool get isAdvertising => _isAdvertising;
 
   // ─── Student: BLE Scanning ────────────────────────────────────────────────
+  // Scans for BLE advertisements that contain the target session ID in their
+  // service data, manufacturer data, or device name.
   static Future<BleAdvertisementData?> scanForSession({
     required String sessionId,
     required int timeoutSeconds,
@@ -125,15 +160,8 @@ class BleService {
 
       _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
         for (final result in results) {
-          // Match by advertised name containing session_id prefix
-          final name = result.device.platformName;
-          final advName = result.advertisementData.advName;
-          final targetName =
-              'UX_${sessionId.substring(0, min(8, sessionId.length))}';
-
-          if (name.contains(targetName) ||
-              advName.contains(targetName) ||
-              name.contains('UpasthitiX')) {
+          final matched = _isTargetSession(result, sessionId);
+          if (matched) {
             final rssi = result.rssi;
             _rssiSamples.add(rssi);
             onRssiUpdate?.call(rssi);
@@ -170,6 +198,54 @@ class BleService {
       await _stopScan();
       return null;
     }
+  }
+
+  /// Checks whether a BLE scan result matches the target session.
+  /// Matches by:
+  ///  1. Service data containing the session ID
+  ///  2. Manufacturer data containing the session ID
+  ///  3. Device name containing the session ID prefix (fallback)
+  static bool _isTargetSession(ScanResult result, String sessionId) {
+    try {
+      final targetPrefix = sessionId.substring(0, min(8, sessionId.length));
+
+      // Check service data (primary method with flutter_ble_peripheral)
+      final svcData = result.advertisementData.serviceData;
+      for (final entry in svcData.entries) {
+        final key = entry.key.toString();
+        if (key.toLowerCase().contains(_serviceUuid.toLowerCase()) ||
+            key.toLowerCase().contains(targetPrefix.toLowerCase())) {
+          final decoded = utf8.decode(entry.value, allowMalformed: true);
+          if (decoded.contains(sessionId) || decoded.contains(targetPrefix)) {
+            return true;
+          }
+        }
+      }
+
+      // Check manufacturer data (Map<int, List<int>>)
+      final mfgData = result.advertisementData.manufacturerData;
+      for (final entry in mfgData.entries) {
+        final decoded = utf8.decode(entry.value, allowMalformed: true);
+        if (decoded.contains(sessionId) || decoded.contains(targetPrefix)) {
+          return true;
+        }
+      }
+
+      // Fallback: match by device name (original approach)
+      final name = result.device.platformName;
+      final advName = result.advertisementData.advName;
+      final targetName = 'UX_$targetPrefix';
+
+      if (name.contains(targetName) ||
+          advName.contains(targetName) ||
+          name.contains('UpasthitiX') ||
+          advName.contains('UpasthitiX')) {
+        return true;
+      }
+    } catch (e) {
+      debugPrint('[BLE] Error matching session: $e');
+    }
+    return false;
   }
 
   static Future<void> _stopScan() async {
